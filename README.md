@@ -145,6 +145,7 @@ accelerate launch \
   train.ckpt_every=50000
 ```
 
+We have experiments with 8xNVIDIA RTX 4090 24G (4xA100) for about 2-3 days.
 Checkpoints are saved under `output/<exp_name>/checkpoints`. By default, training keeps the latest 3 checkpoints and runs final inference for `train.final_num_samples` meshes.
 
 ## Inference
@@ -168,6 +169,7 @@ CUDA_VISIBLE_DEVICES=6 python inference.py \
 ```
 
 Generated meshes are saved to `output/<exp_name>/infer_<step>/`. The default CFG scale is 2.0 and can be overridden with `sample.cfg_scale=<value>`.
+The inference time for one batch should be around 1 second, which is dependent on the hardware.
 
 ## Interactive Demo
 
@@ -183,7 +185,7 @@ Then open `http://127.0.0.1:7860`. The UI supports category selection, checkpoin
 
 ## Evaluation
 
-ShapeNet generation metrics can be computed from generated `.obj` meshes:
+To reproduce the Table 1 in paper, ShapeNet generation metrics can be computed from generated `.obj` meshes:
 
 ```bash
 CUDA_VISIBLE_DEVICES=6 python tools/point_evaluation.py \
