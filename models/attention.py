@@ -71,36 +71,34 @@ def _attention_sdpa(q, k, v, mask_q=None, mask_kv=None, dropout=0.0, causal=Fals
     k_sdpa = k.transpose(1, 2)
     v_sdpa = v.transpose(1, 2)
 
-    padding_attn_mask = None
-    if mask_q is not None or mask_kv is not None:
-        mask_components = []
-        if mask_q is not None:
-            mask_components.append((~mask_q).unsqueeze(2).expand(batch_size, n_target, m_source))
-        if mask_kv is not None:
-            mask_components.append((~mask_kv).unsqueeze(1).expand(batch_size, n_target, m_source))
+    # torch SDPA treats a boolean attn_mask as True == "attend". Build a mask that
+    # is True where attention is ALLOWED: exclude padded KEYS so that no query
+    # attends to padding. (The previous version passed True at *padded* positions,
+    # which made SDPA attend to padding and mask out the real tokens -> corrupted
+    # output whenever FlashAttention was unavailable and this fallback ran.)
+    #
+    # Keys only, not queries: rows for padded queries are discarded by the caller,
+    # and masking their keys too would create all-False rows -> NaN after softmax.
+    attn_mask = None
+    key_valid = mask_kv if mask_kv is not None else mask_q
+    if key_valid is not None:
+        attn_mask = key_valid[:, None, None, :].expand(batch_size, 1, n_target, m_source)
 
-        if mask_components:
-            combined_mask = mask_components[0]
-            for item in mask_components[1:]:
-                combined_mask = combined_mask | item
-            padding_attn_mask = combined_mask.unsqueeze(1)
-
-    sdpa_is_causal = False
     if causal:
-        if n_target == m_source or n_target == 1:
-            sdpa_is_causal = True
-        else:
+        if not (n_target == m_source or n_target == 1):
             raise ValueError(
                 f"causal=True requires n_target == m_source or n_target == 1, got n_target={n_target}, m_source={m_source}"
             )
+        causal_mask = torch.tril(torch.ones(n_target, m_source, dtype=torch.bool, device=q.device))[None, None]
+        attn_mask = causal_mask if attn_mask is None else (attn_mask & causal_mask)
 
     output = F.scaled_dot_product_attention(
         query=q_sdpa,
         key=k_sdpa,
         value=v_sdpa,
-        attn_mask=padding_attn_mask,
+        attn_mask=attn_mask,
         dropout_p=dropout,
-        is_causal=sdpa_is_causal,
+        is_causal=False,
     )
     return output.transpose(1, 2)
 
